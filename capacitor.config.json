@@ -1,0 +1,9 @@
+{
+  "appId": "com.waqtalhelaqa.app",
+  "appName": "وقت الحلاقة",
+  "webDir": "www",
+  "ios": { "contentInset": "never", "scrollEnabled": true },
+  "plugins": {
+    "FirebaseMessaging": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}

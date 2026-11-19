@@ -1,0 +1,8 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>وقت الحلاقة</title>
+<script>
+// يحوّل waqtalhelaqa.com/<رقم المحل> إلى صفحة المحل
+var p=location.pathname.split('/').filter(Boolean);
+var base=location.hostname.endsWith('github.io')?'/'+p.shift()+'/':'/';
+var id=(p[0]||'').replace(/[^\w-]/g,'');
+location.replace(location.origin+base+(id?'?s='+id:''));
+</script></head><body></body></html>

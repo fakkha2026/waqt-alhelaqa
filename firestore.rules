@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signed() { return request.auth != null; }
+    function me() { return get(/databases/$(db)/documents/users/$(request.auth.uid)).data; }
+    function admin() { return signed() && exists(/databases/$(db)/documents/users/$(request.auth.uid)) && me().role == 'a'; }
+    function shopOwner(sid) { return signed() && get(/databases/$(db)/documents/shops/$(sid)).data.ownerUid == request.auth.uid; }
+    function onlyKeys(k) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(k); }
+
+    match /users/{uid} {
+      allow read: if signed() && (request.auth.uid == uid || admin());
+      allow create: if signed() && request.auth.uid == uid && request.resource.data.role in ['c', 'p']
+                    && !('blocked' in request.resource.data) && !('shopId' in request.resource.data);
+      allow update: if admin() || (signed() && request.auth.uid == uid && onlyKeys(['name', 'pinH', 'fcm']));
+      allow delete: if admin();
+    }
+    match /phones/{ph} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if admin() || (signed() && request.resource.data.uid == request.auth.uid && request.resource.data.t in ['c', 'p']);
+      allow update, delete: if admin();
+    }
+    match /shops/{sid} {
+      allow read: if true;
+      allow create, delete: if admin();
+      allow update: if admin()
+        || (signed() && resource.data.ownerUid == request.auth.uid && onlyKeys(['staff', 'from', 'to', 'blocked']))
+        || (signed() && resource.data.ownerUid == request.auth.uid && resource.data.pLock == false && onlyKeys(['svcs', 'pLock']));
+    }
+    match /shopReqs/{uid} {
+      allow create: if signed() && request.auth.uid == uid;
+      allow read: if admin() || (signed() && request.auth.uid == uid);
+      allow delete: if admin();
+    }
+    match /bookings/{id} {
+      allow create: if signed() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'new'
+                    && me().role == 'c' && me().get('blocked', false) != true
+                    && !('rate' in request.resource.data) && !('n_booked' in request.resource.data);
+      allow read: if signed() && (resource.data.uid == request.auth.uid || admin() || shopOwner(resource.data.shopId));
+      allow update: if admin()
+        || (signed() && resource.data.uid == request.auth.uid && resource.data.status == 'new' && request.resource.data.status == 'cancel' && onlyKeys(['status']))
+        || (shopOwner(resource.data.shopId) && resource.data.status == 'new' && request.resource.data.status in ['done', 'cancel'] && onlyKeys(['status']));
+    }
+    match /slots/{id} {
+      allow read: if signed();
+      allow create: if signed() && request.resource.data.uid == request.auth.uid;
+      allow delete: if signed() && (resource.data.uid == request.auth.uid || admin() || shopOwner(resource.data.shop));
+    }
+    match /msgs/{id} {
+      allow create: if shopOwner(request.resource.data.shopId) && request.resource.data.read == false;
+      allow read: if admin() || shopOwner(resource.data.shopId);
+      allow update: if admin() || (shopOwner(resource.data.shopId) && onlyKeys(['rNew']));
+      allow delete: if admin();
+    }
+    match /bcast/{id} { allow read: if signed(); allow write: if admin(); }
+    match /notifs/{id} { allow read, delete: if signed() && resource.data.to == request.auth.uid; allow create, update: if false; }
+    match /rates/{id} { allow read, update: if admin(); allow create, delete: if false; }
+    match /pays/{id} { allow read, write: if admin(); }
+    match /pwReqs/{id} { allow read, delete: if admin(); allow create, update: if false; }
+    match /config/{id} { allow read: if true; allow write: if admin(); }
+    match /secret/{id} { allow read, write: if false; }
+    match /iapTx/{id} { allow read, write: if false; }
+  }
+}
