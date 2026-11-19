@@ -15,7 +15,11 @@ workflows:
       xcode: latest
       cocoapods: default
     triggering:
-      events: []
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
     scripts:
       - name: تثبيت
         script: npm install
