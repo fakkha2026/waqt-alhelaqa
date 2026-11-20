@@ -7,8 +7,10 @@ workflows:
       app_store_connect: fakkha
     environment:
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.waqtalhelaqa.app
+        provisioning_profiles:
+          - Waqt_profile
+        certificates:
+          - ludo_dist
       vars:
         APP_VERSION: "1.0"
       node: 20
