@@ -227,7 +227,7 @@ const SV6=()=>[{n:'شعر',min:30},{n:'دقن',min:20},{n:'سنفرة',min:15},{
 
 /* ===== الحالة ===== */
 let ME=null,UID=null,role=null,V={p:'home'},L={step:'phone'},READY=false;
-const C={shops:{},myB:[],shopB:[],msgs:[],bcast:[],reqs:[],pwReqs:[],pays:[],custs:[],monthB:[],lowR:[],slots:new Set(),hx:{}};
+const C={shops:{},myB:[],shopB:[],msgs:[],bcast:[],reqs:[],pwReqs:[],pays:[],custs:[],monthB:[],lowR:[],slotD:[],hx:{}};
 let UNS=[];const keep=u=>UNS.push(u);
 function unsubAll(){UNS.forEach(f=>{try{f()}catch(e){}});UNS=[];if(SLOTW.u){SLOTW.u();SLOTW={}}}
 const B=id=>C.shops[id];
@@ -238,7 +238,17 @@ const visible=b=>b&&b.active&&b.pLock&&!locked(b);
 const planName=m=>(PLANS.find(p=>p.m===m)||{n:m+' شهور'}).n;
 const rOf=(b,who)=>{if(!b)return null;if(who==null)return b.rN?{a:b.rS/b.rN,n:b.rN}:null;const x=(b.sr||{})[who];return x&&x.n?{a:x.s/x.n,n:x.n}:null};
 const rTag=x=>x?`<span class="rt">⭐ ${x.a.toFixed(1)} <small>(${x.n})</small></span>`:`<span class="rt none">جديد</span>`;
-const slotId=k=>k.shopId+'_'+k.date+'_'+k.time.replace(':','');
+const slotId=k=>k.shopId+'_'+k.date+'_'+k.time.replace(':','')+(k.sv===2&&k.who?'_'+String(k.who).replace(/[\/\s]/g,'-'):'');
+/* ===== كل حلاق بجهازه ===== */
+const LS={g(k){try{return localStorage.getItem(k)}catch(e){return null}},s(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}};
+const DEV=(()=>{let d=LS.g('waqt_dev');if(!d){d='d'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);LS.s('waqt_dev',d)}return d})();
+const whoKey=()=>'waqt_who_'+(ME&&ME.shopId);
+const getWho=()=>LS.g(whoKey());
+const setWho=v=>LS.s(whoKey(),v);
+function soloOf(b){if(role!=='b'||!b)return null;const w=getWho();if(!w||w==='__own')return null;const s=(b.staff||[]).find(x=>x.n===w);if(!s||s.dev!==DEV){setWho(null);return null}return w}
+const hoursOf=(b,wn)=>{const s=wn&&(b.staff||[]).find(x=>x.n===wn);return{from:(s&&s.from)||b.from,to:(s&&s.to)||b.to}};
+async function staffTx(fn){const ref=db.collection('shops').doc(ME.shopId);
+ return db.runTransaction(async t=>{const d=await t.get(ref);const st=((d.data()||{}).staff||[]).map(x=>Object.assign({},x));const r=fn(st);if(r===false)return false;t.update(ref,{staff:st});return true})}
 
 /* ===== الرابط من الباركود ===== */
 const LINK=(()=>{const q=new URLSearchParams(location.search).get('s');return q?q.replace(/[^\w-]/g,''):null})();
@@ -265,7 +275,7 @@ auth.onAuthStateChanged(async u=>{if(USERU){USERU();USERU=null}unsubAll();ME=nul
 });
 function startRole(){READY=true;
  if(role==='a')watchShops(false);else watchShops(true);
- keep(db.collection('notifs').where('to','==',UID).onSnapshot(s=>{s.docChanges().forEach(c=>{if(c.type==='added'){const d=c.doc.data();NQ.push({id:c.doc.id,t:d.t,m:d.m})}});showNext()},()=>{}));
+ keep(db.collection('notifs').where('to','==',UID).onSnapshot(s=>{s.docChanges().forEach(c=>{if(c.type==='added'){const d=c.doc.data();NQ.push({id:c.doc.id,t:d.t,m:d.m,who:d.who||''})}});showNext()},()=>{}));
  if(role==='c'){
   keep(db.collection('bookings').where('uid','==',UID).onSnapshot(s=>{C.myB=s.docs.map(d=>Object.assign({id:d.id},d.data()));render()},e=>console.log(e)));
   if(L.ret){V={p:'shop',bid:L.ret,who:null,sv:[],day:0,slot:null,fromLink:true};L.ret=null}else if(!V.fromLink)V={p:'home'};
@@ -274,7 +284,7 @@ function startRole(){READY=true;
   keep(db.collection('bookings').where('shopId','==',sid).onSnapshot(s=>{C.shopB=s.docs.map(d=>Object.assign({id:d.id},d.data()));render()},e=>console.log(e)));
   keep(db.collection('msgs').where('shopId','==',sid).onSnapshot(s=>{C.msgs=s.docs.map(d=>Object.assign({id:d.id},d.data()));render()},e=>console.log(e)));
   keep(db.collection('bcast').orderBy('at','desc').limit(5).onSnapshot(s=>{C.bcast=s.docs.map(d=>Object.assign({id:d.id},d.data()));render()},()=>{}));
-  keep(db.collection('shops').doc(sid).onSnapshot(s=>{if(s.exists){C.shops[sid]=Object.assign({id:sid},s.data());render()}},()=>{}));
+  let pushed=false;keep(db.collection('shops').doc(sid).onSnapshot(s=>{if(s.exists){C.shops[sid]=Object.assign({id:sid},s.data());if(!pushed){pushed=true;registerPush()}render()}},()=>{}));
   V={p:'bk',day:0};initStore();
  }
  if(role==='a'){
@@ -288,16 +298,27 @@ function startRole(){READY=true;
   keep(db.collection('users').where('role','==','c').onSnapshot(s=>{C.custs=s.docs.map(d=>Object.assign({id:d.id},d.data()));render()},()=>{}));
   V={p:'list'};
  }
- registerPush();render();scrollTo(0,0);
+ if(role!=='b')registerPush();render();scrollTo(0,0);
 }
 async function registerPush(){if(!IS_APP)return;const M=Capacitor.Plugins&&Capacitor.Plugins.FirebaseMessaging;if(!M)return;
- try{const p=await M.requestPermissions();if(p.receive!=='granted')return;const{token}=await M.getToken();if(token&&!(ME.fcm||[]).includes(token))db.collection('users').doc(UID).update({fcm:FV.arrayUnion(token)})}catch(e){console.log(e)}}
+ try{const p=await M.requestPermissions();if(p.receive!=='granted')return;const{token}=await M.getToken();if(!token)return;
+  if(role==='b'){const b=B(ME.shopId);const solo=soloOf(b);const st=(b&&b.staff)||[];
+   if(solo){if((ME.fcm||[]).includes(token))db.collection('users').doc(UID).update({fcm:FV.arrayRemove(token)});
+    const s=st.find(x=>x.n===solo);if(!s||!(s.tk||[]).includes(token)||st.some(x=>x.n!==solo&&(x.tk||[]).includes(token)))
+     staffTx(L2=>{L2.forEach(x=>{if(x.tk)x.tk=x.tk.filter(t=>t!==token)});const m=L2.find(x=>x.n===solo);if(!m||m.dev!==DEV)return false;m.tk=(m.tk||[]).concat(token)}).catch(e=>console.log(e));
+    return}
+   if(st.some(x=>(x.tk||[]).includes(token)))staffTx(L2=>{L2.forEach(x=>{if(x.tk)x.tk=x.tk.filter(t=>t!==token)})}).catch(e=>console.log(e));
+  }
+  if(!(ME.fcm||[]).includes(token))db.collection('users').doc(UID).update({fcm:FV.arrayUnion(token)})}catch(e){console.log(e)}}
 
 /* ===== الإشعارات داخل التطبيق ===== */
 let NQ=[],ntBusy=false;
-function showNext(){if(ntBusy||!NQ.length)return;if(document.getElementById('splash')){setTimeout(showNext,1500);return}ntBusy=true;const n=NQ.shift();const e=document.getElementById('nt');
+function showNext(){if(ntBusy||!NQ.length)return;if(document.getElementById('splash')){setTimeout(showNext,1500);return}
+ const so=role==='b'?soloOf(B(ME.shopId)):null;if(so){const sn=(LS.g('waqt_seen')||'').split(',');while(NQ.length&&(NQ[0].who!==so||sn.includes(NQ[0].id)))NQ.shift();if(!NQ.length)return}
+ ntBusy=true;const n=NQ.shift();const e=document.getElementById('nt');
  e.innerHTML=`<div class="ic lgbg"></div><div class="tx"><div class="hd"><span>وقت الحلاقة</span><span>الآن</span></div><b>${esc(n.t)}</b><span class="m">${esc(n.m)}</span></div><button class="skip" onclick="hideNt('${n.id}')">تخطي</button>`;e.classList.add('show')}
-function hideNt(id){document.getElementById('nt').classList.remove('show');if(id)db.collection('notifs').doc(id).delete().catch(()=>{});setTimeout(()=>{ntBusy=false;showNext()},500)}
+function hideNt(id){document.getElementById('nt').classList.remove('show');const so=role==='b'?soloOf(B(ME.shopId)):null;
+ if(so){if(id)LS.s('waqt_seen',[id].concat((LS.g('waqt_seen')||'').split(',').filter(Boolean)).slice(0,100).join(','))}else if(id)db.collection('notifs').doc(id).delete().catch(()=>{});setTimeout(()=>{ntBusy=false;showNext()},500)}
 
 /* ===== العرض ===== */
 function nav(o){V=Object.assign({},V,o);render();scrollTo(0,0)}
@@ -397,12 +418,12 @@ function myUpcoming(){return C.myB.filter(k=>k.status==='new'&&k.date>=todayK())
 function myPast(){return C.myB.filter(k=>k.status!=='new'||k.date<todayK()).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))}
 const toRate=()=>C.myB.filter(k=>k.status==='done'&&!k.rate);
 let SLOTW={};
-function watchSlots(bid,date){const key=bid+'|'+date;if(SLOTW.k===key)return;if(SLOTW.u)SLOTW.u();C.slots=new Set();SLOTW={k:key};
- if(!UID)return;SLOTW.u=db.collection('slots').where('shop','==',bid).where('date','==',date).onSnapshot(s=>{C.slots=new Set(s.docs.map(d=>d.data().time));render()},()=>{})}
-function slotsFor(b,date){const out=[];let[h,m]=b.from.split(':').map(Number);const[eh,em]=b.to.split(':').map(Number);const end=eh*60+em;
+function watchSlots(bid,date){const key=bid+'|'+date;if(SLOTW.k===key)return;if(SLOTW.u)SLOTW.u();C.slotD=[];SLOTW={k:key};
+ if(!UID)return;SLOTW.u=db.collection('slots').where('shop','==',bid).where('date','==',date).onSnapshot(s=>{C.slotD=s.docs.map(d=>d.data());render()},()=>{})}
+function slotsFor(b,date){const out=[];const wn=V.who!=null&&b.staff&&b.staff[V.who]?b.staff[V.who].n:'';const H=hoursOf(b,wn);let[h,m]=H.from.split(':').map(Number);const[eh,em]=H.to.split(':').map(Number);const end=eh*60+em;const SD=C.slotD||[];
  const now=new Date();const isToday=date===dkey(now);const nowMin=now.getHours()*60+now.getMinutes();
  for(let t=h*60+m;t<end;t+=30){const s=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;
-  out.push({s,booked:C.slots.has(s),blk:(b.blocked||[]).includes(date+'|'+s),past:isToday&&t<=nowMin})}
+  out.push({s,booked:SD.some(d=>d.time===s&&(!d.who||!wn||d.who===wn)),blk:(b.blocked||[]).includes(date+'|'+s)||(!!wn&&(b.blocked||[]).includes(date+'|'+s+'|'+wn)),past:isToday&&t<=nowMin})}
  return out}
 function cust(){
  if(V.p==='home'){const tr=toRate();
@@ -481,9 +502,9 @@ function bookForm(){if(!UID){L.ret=V.bid;L.step='phone';V=Object.assign({},V,{p:
 async function confirmBook(){const b=B(V.bid),s=svPick(b),date=dkey(addDays(V.day)),time=V.slot;
  const who=V.who!=null&&b.staff&&b.staff[V.who]?b.staff[V.who].n:'';
  const ref=db.collection('bookings').doc();
- const k={shopId:b.id,date,time,svc:s.n,price:s.price,name:ME.name,phone:ME.phone,uid:UID,status:'new',who,at:Date.now(),remindAt:new Date(date+'T'+time+':00+03:00').getTime()-3600e3,reminded:false};
+ const k={shopId:b.id,date,time,svc:s.n,price:s.price,name:ME.name,phone:ME.phone,uid:UID,status:'new',who,sv:2,at:Date.now(),remindAt:new Date(date+'T'+time+':00+03:00').getTime()-3600e3,reminded:false};
  busy('جاري الحجز…');
- const bt=db.batch();bt.set(db.collection('slots').doc(slotId(k)),{shop:b.id,date,time,uid:UID,bk:ref.id});bt.set(ref,k);
+ const bt=db.batch();bt.set(db.collection('slots').doc(slotId(k)),{shop:b.id,date,time,uid:UID,bk:ref.id,who});bt.set(ref,k);
  try{await bt.commit()}catch(e){closeSheet();toast('هالوقت انحجز، اختار وقت ثاني');V.slot=null;render();return}
  api('/event',{type:'booked',id:ref.id});closeSheet();nav({p:'done',bk:Object.assign({id:ref.id},k),fromLink:false})}
 async function cancelMine(id){const k=C.myB.find(x=>x.id===id)||(V.bk&&V.bk.id===id?V.bk:null);if(!k)return;
@@ -505,22 +526,32 @@ async function saveRate(id){if(!RS){toast('اختار عدد النجوم');retu
 /* ========== الحلاق ========== */
 function barber(){const b=B(ME.shopId);
  if(!b)return '<div class="load"><div class="spin"></div></div>';
+ const solo=soloOf(b);
+ if(!solo&&(b.staff||[]).length&&getWho()!=='__own')return whoView(b);
+ if(solo&&locked(b))return `<div class="hdr"><div><div class="sub">${esc(b.name)}</div><h1>${esc(solo)}</h1></div></div><div class="wrap"><div class="card" style="text-align:center;padding:30px 18px"><div style="font-size:56px">🔒</div><h2 style="margin:8px 0 6px;color:var(--bad)">الاشتراك منتهي</h2><div style="color:var(--muted);font-size:14px">كلّم صاحب المحل يجدّد الاشتراك</div></div></div>`;
  if(locked(b)){return `<div class="hdr"><div><div class="sub">لوحة الحلاق</div><h1>${esc(b.name)}</h1></div></div><div class="wrap"><div class="card" style="text-align:center;padding:30px 18px"><div style="font-size:56px">🔒</div><h2 style="margin:8px 0 6px;color:var(--bad)">الاشتراك منتهي</h2><div style="font-weight:700;margin-bottom:6px">يحتاج تجديد</div><div style="color:var(--muted);margin-bottom:18px;font-size:14px">حسابك متوقف ومحلك ما يطلع للزباين لين تجدّد</div><button class="btn acc" onclick="reqSheet()">جدّد الاشتراك</button></div></div>`}
+ if(solo&&V.p!=='bk'&&V.p!=='time')V.p='bk';
  const rn=V.p==='msg'?0:C.msgs.filter(m=>m.rNew).length;
- const tabs=`<div class="tabs">${[['bk','حجوزاتي'],['time','أوقاتي'],['link','رابطي'],['msg','💬 تواصل']].map(([k,n])=>`<button class="${V.p===k?'on':''}" onclick="nav({p:'${k}'})">${n}${k==='msg'&&rn?` <span style="background:var(--acc);color:#fff;border-radius:9px;padding:1px 7px;font-size:12px">${rn}</span>`:''}</button>`).join('')}</div>`;
- let body=subCard(b);
+ const tabs=`<div class="tabs">${(solo?[['bk','حجوزاتي'],['time','أوقاتي']]:[['bk','حجوزاتي'],['time','أوقاتي'],['link','رابطي'],['msg','💬 تواصل']]).map(([k,n])=>`<button class="${V.p===k?'on':''}" onclick="nav({p:'${k}'})">${n}${k==='msg'&&rn?` <span style="background:var(--acc);color:#fff;border-radius:9px;padding:1px 7px;font-size:12px">${rn}</span>`:''}</button>`).join('')}</div>`;
+ let body=solo?'':subCard(b);
  if(!b.active)body+=`<div class="card" style="background:var(--badSoft);color:var(--bad);font-weight:700">⚠️ حسابك موقوف — محلك ما يطلع للزباين</div>`;
  else if(!subOk(b)){const g=GRACE+subDays(b);body+=`<div class="card" style="background:var(--badSoft);color:var(--bad);font-weight:700">⚠️ انتهى اشتراكك — جدّد خلال ${g} ${g===1?'يوم':'أيام'}، وإلا يتوقف حسابك تلقائياً ومحلك ما يطلع للزباين</div>`}
  const days=[0,1,2,3,4,5,6].map(addDays);const date=dkey(days[V.day||0]);
- if(V.p==='bk'){const mon=new Date();const mine=C.shopB.filter(x=>x.status!=='cancel'&&dOf(x.date).getMonth()===mon.getMonth()&&dOf(x.date).getFullYear()===mon.getFullYear());
-  const fx=x=>!V.st||x.who===V.st;
+ if(V.p==='bk'){const mon=new Date();const mine=C.shopB.filter(x=>(!solo||x.who===solo)&&x.status!=='cancel'&&dOf(x.date).getMonth()===mon.getMonth()&&dOf(x.date).getFullYear()===mon.getFullYear());
+  const fx=solo?(x=>x.who===solo):(x=>!V.st||x.who===V.st);
   const list=C.shopB.filter(x=>x.date===date&&fx(x)).sort((a,c)=>a.time.localeCompare(c.time));const stf=b.staff||[];
-  body+=`<div class="stats"><div><b>${C.shopB.filter(x=>x.date===todayK()&&x.status!=='cancel').length}</b><span>حجوزات اليوم</span></div><div><b>${mine.length}</b><span>هالشهر</span></div><div><b>${fmt(mine.reduce((a,x)=>a+x.price,0))}</b><span>ريال هالشهر</span></div></div>
-  ${stf.length?`<div class="ttl">حجوزات مين؟</div><div class="sw" style="margin:0 0 12px"><span class="pill spill ${!V.st?'ft':''}" style="font-size:14px;padding:8px 16px" onclick="nav({st:null})">الكل</span>${stf.map(s=>`<span class="pill spill ${V.st===s.n?'ft':''}" style="font-size:14px;padding:8px 16px" onclick="nav({st:'${esc(s.n)}'})">${esc(s.n)}</span>`).join('')}</div>`:''}
+  body+=`<div class="stats"><div><b>${C.shopB.filter(x=>x.date===todayK()&&x.status!=='cancel'&&fx(x)).length}</b><span>حجوزات اليوم</span></div><div><b>${mine.length}</b><span>هالشهر</span></div><div><b>${fmt(mine.reduce((a,x)=>a+x.price,0))}</b><span>ريال هالشهر</span></div></div>
+  ${stf.length&&!solo?`<div class="ttl">حجوزات مين؟</div><div class="sw" style="margin:0 0 12px"><span class="pill spill ${!V.st?'ft':''}" style="font-size:14px;padding:8px 16px" onclick="nav({st:null})">الكل</span>${stf.map(s=>`<span class="pill spill ${V.st===s.n?'ft':''}" style="font-size:14px;padding:8px 16px" onclick="nav({st:'${esc(s.n)}'})">${esc(s.n)}</span>`).join('')}</div>`:''}
   <div class="days">${days.map((d,i)=>`<div class="day ${(V.day||0)===i?'on':''}" onclick="nav({day:${i}})"><span>${i===0?'اليوم':i===1?'بكرة':DN[d.getDay()]}</span><b>${d.getDate()}</b><span>${C.shopB.filter(x=>x.date===dkey(d)&&x.status!=='cancel'&&fx(x)).length} حجز</span></div>`).join('')}</div>
-  <div class="card">${list.length?list.map(x=>`<div class="bk"><div class="tm">${t12(x.time)}</div><div class="mid"><b>${esc(x.name)}</b>${x.who?`<span style="color:var(--acc);font-weight:700;display:block">عند ${esc(x.who)}</span>`:''}<span style="display:block">${esc(x.svc)} · ${x.price} ريال</span><a href="tel:${esc(x.phone)}" style="direction:ltr;display:inline-block;font-size:13px;color:var(--muted)">📞 ${esc(x.phone)}</a></div>${x.status==='new'?`<button class="btn sm okb" onclick="setSt('${x.id}','done')">تم</button><button class="btn sm badb" onclick="setSt('${x.id}','cancel')">إلغاء</button>`:`<span class="st ${x.status}">${x.status==='done'?'تم ✓':'ملغي'}</span>`}</div>`).join(''):`<div class="empty">ما فيه حجوزات هاليوم${V.st?' عند '+esc(V.st):''}</div>`}</div>`}
- if(V.p==='time'){const sl=slotsForB(b,date);const stf=b.staff||[];
-  body+=`<div class="card"><div class="ttl">حلاقين المحل <span>اضغط تغيّر الحالة</span></div>${stf.map((s,i)=>`<div class="adm"><div class="av" style="width:40px;height:40px;font-size:18px;border-radius:12px;${s.av?'':'background:#CFCBC4'}">👤</div><div class="mid"><b style="${s.av?'':'color:#A9A59E'}">${esc(s.n)}</b><span>${s.av?'يطلع للزباين ويقدرون يحجزون عنده':'يطلع رمادي وما أحد يقدر يحجز عنده'}</span></div><button class="btn sm ${s.av?'okb':'badb'}" onclick="togStaff(${i})">${s.av?'✓ متاح':'غير متاح'}</button></div>`).join('')}
+  <div class="card">${list.length?list.map(x=>`<div class="bk"><div class="tm">${t12(x.time)}</div><div class="mid"><b>${esc(x.name)}</b>${x.who?`<span style="color:var(--acc);font-weight:700;display:block">عند ${esc(x.who)}</span>`:''}<span style="display:block">${esc(x.svc)} · ${x.price} ريال</span><a href="tel:${esc(x.phone)}" style="direction:ltr;display:inline-block;font-size:13px;color:var(--muted)">📞 ${esc(x.phone)}</a></div>${x.status==='new'?`<button class="btn sm okb" onclick="setSt('${x.id}','done')">تم</button><button class="btn sm badb" onclick="setSt('${x.id}','cancel')">إلغاء</button>`:`<span class="st ${x.status}">${x.status==='done'?'تم ✓':'ملغي'}</span>`}</div>`).join(''):`<div class="empty">ما فيه حجوزات هاليوم${!solo&&V.st?' عند '+esc(V.st):''}</div>`}</div>`}
+ if(V.p==='time'&&solo){const i=(b.staff||[]).findIndex(x=>x.n===solo),s=b.staff[i],H=hoursOf(b,solo),sl=slotsForB(b,date,solo);
+  body+=`<div class="card"><div class="adm"><div class="av" style="width:40px;height:40px;font-size:18px;border-radius:12px;${s.av?'':'background:#CFCBC4'}">👤</div><div class="mid"><b style="${s.av?'':'color:#A9A59E'}">${esc(s.n)}</b><span>${s.av?'تطلع للزباين ويقدرون يحجزون عندك':'تطلع رمادي وما أحد يقدر يحجز عندك'}</span></div><button class="btn sm ${s.av?'okb':'badb'}" onclick="togStaff(${i})">${s.av?'✓ متاح':'غير متاح'}</button></div></div>
+  <div class="card"><div class="ttl">ساعات دوامي</div><div class="two"><div class="fld"><label>من</label><input type="time" value="${H.from}" onchange="setMyH('from',this.value)"></div><div class="fld"><label>إلى</label><input type="time" value="${H.to==='24:00'?'23:59':H.to}" onchange="setMyH('to',this.value==='23:59'?'24:00':this.value)"></div></div></div>
+  <div class="ttl">اقفل أوقاتي <span>اضغط على الوقت تقفله أو تفتحه</span></div>
+  <div class="days">${days.map((d,i)=>`<div class="day ${(V.day||0)===i?'on':''}" onclick="nav({day:${i}})"><span>${i===0?'اليوم':i===1?'بكرة':DN[d.getDay()]}</span><b>${d.getDate()}</b><span>${MN[d.getMonth()]}</span></div>`).join('')}</div>
+  <div class="slots">${sl.map(x=>`<div class="slot ${x.booked?'bkd':x.blk?'blk':''}" ${x.booked||x.shopBlk?'':`onclick="toggleBlk('${date}','${x.s}')"`}>${t12(x.s)}<div style="font-size:10px;font-weight:500">${x.booked?'محجوز':x.shopBlk?'مقفل (المحل)':x.blk?'مقفل':'متاح'}</div></div>`).join('')}</div>`}
+ else if(V.p==='time'){const sl=slotsForB(b,date);const stf=b.staff||[];
+  body+=`<div class="card"><div class="ttl">حلاقين المحل <span>اضغط تغيّر الحالة</span></div>${stf.map((s,i)=>`<div class="adm"><div class="av" style="width:40px;height:40px;font-size:18px;border-radius:12px;${s.av?'':'background:#CFCBC4'}">👤</div><div class="mid"><b style="${s.av?'':'color:#A9A59E'}">${esc(s.n)}</b><span>${s.av?'يطلع للزباين ويقدرون يحجزون عنده':'يطلع رمادي وما أحد يقدر يحجز عنده'}</span><span style="display:block;font-size:12px">${s.dev?'📱 مربوط بجواله':'📱 مو مربوط بجوال'}</span></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm ${s.av?'okb':'badb'}" onclick="togStaff(${i})">${s.av?'✓ متاح':'غير متاح'}</button>${s.dev?`<button class="btn sm sec" style="font-size:12px" onclick="unlinkSheet(${i})">فك الربط</button>`:''}</div></div>`).join('')}
   ${stf.length?'':'<div class="empty">ما فيه حلاقين — راسل الإدارة من تبويب تواصل</div>'}
   <div class="note" style="margin-top:10px">لأي طلب (إضافة حلاق، حذف حلاق، تعديل الاسم أو الموقع) راسل الإدارة من تبويب «تواصل»</div></div>
   <div class="card"><div class="ttl">ساعات الدوام</div><div class="two"><div class="fld"><label>من</label><input type="time" value="${b.from}" onchange="updShop({from:this.value})"></div><div class="fld"><label>إلى</label><input type="time" value="${b.to==='24:00'?'23:59':b.to}" onchange="updShop({to:this.value==='23:59'?'24:00':this.value})"></div></div></div>
@@ -537,16 +568,32 @@ function barber(){const b=B(ME.shopId);
   body+=`<div class="card" style="text-align:center"><div class="ttl" style="justify-content:center">رابط محلك</div><div class="link">${esc(url.replace('https://',''))}</div><div id="qr"></div>
   <div class="note">اطبع الكود وحطه على الباب أو الكاشير، وحط الرابط في انستقرام وسناب</div></div>
   <button class="btn" onclick="dlQR()">⬇️ حمّل الباركود</button>`}
- return `<div class="hdr"><div><div class="sub">لوحة الحلاق</div><h1>${esc(b.name)}</h1></div></div><div class="wrap">${tabs}${body}</div>`;
+ return solo?`<div class="hdr"><div><div class="sub">${esc(b.name)}</div><h1>${esc(solo)}</h1></div></div><div class="wrap">${tabs}${body}</div>`:`<div class="hdr"><div><div class="sub">لوحة الحلاق</div><h1>${esc(b.name)}</h1></div></div><div class="wrap">${tabs}${body}</div>`;
 }
+function whoView(b){const st=b.staff||[];
+ return `<div class="hdr"><div><div class="sub">${esc(b.name)}</div><h1>مين أنت؟</h1></div></div><div class="wrap"><div class="card"><div class="note" style="margin-bottom:10px">اختار اسمك مرة وحدة بس، وبعدها تفتح لك صفحتك على طول كل ما تدخل</div>
+ ${st.map((s,i)=>{const tk=s.dev&&s.dev!==DEV;return `<div class="svc ${tk?'na':''}" ${tk?'':`onclick="whoAsk(${i})"`}><div style="display:flex;align-items:center;gap:10px"><div class="av" style="width:40px;height:40px;font-size:18px;border-radius:12px;${tk?'background:#CFCBC4':''}">👤</div><b style="${tk?'color:#A9A59E':''}">${esc(s.n)}</b></div>${tk?'<span style="color:#A9A59E;font-size:13px;font-weight:700">مسجّل</span>':'<span style="color:var(--muted)">‹</span>'}</div>`}).join('')}
+ <div class="svc" onclick="whoAsk(-1)"><div style="display:flex;align-items:center;gap:10px"><div class="av lgbg" style="width:40px;height:40px;border-radius:12px"></div><b>صاحب المحل</b></div><span style="color:var(--muted)">‹</span></div></div>
+ <button class="btn sec" onclick="logout()">تسجيل خروج</button></div>`}
+function whoAsk(i){const b=B(ME.shopId);const n=i<0?'صاحب المحل':esc(b.staff[i].n);
+ sheet(`<h3>أنت ${n}؟</h3><div style="text-align:center;color:var(--muted);margin-bottom:14px">${i<0?'تشوف حجوزات كل الحلاقين وتتحكم بالمحل':'ينربط اسمك بجوالك هذا، وتشوف حجوزاتك أنت بس'}</div><button class="btn acc" onclick="whoSet(${i})">تأكيد</button><div style="height:8px"></div><button class="btn sec" onclick="closeSheet()">رجوع</button>`)}
+async function whoSet(i){if(i<0){setWho('__own');closeSheet();V={p:'bk',day:0};registerPush();render();return}
+ const n=B(ME.shopId).staff[i].n;busy();
+ try{const ok=await staffTx(st=>{const s=st.find(x=>x.n===n);if(!s||(s.dev&&s.dev!==DEV))return false;s.dev=DEV});
+  if(!ok){closeSheet();toast('هالاسم مسجّل بجوال ثاني');return}
+  setWho(n);C.shops[ME.shopId].staff=(C.shops[ME.shopId].staff||[]).map(x=>x.n===n?Object.assign({},x,{dev:DEV}):x);closeSheet();V={p:'bk',day:0};registerPush();render();toast('أهلاً '+n+' ✓')}
+ catch(e){closeSheet();toast('ما انحفظ، جرّب مرة ثانية')}}
+function unlinkSheet(i){const s=B(ME.shopId).staff[i];sheet(`<h3>فك ربط ${esc(s.n)}؟</h3><div style="text-align:center;color:var(--muted);margin-bottom:14px">ينفك اسمه من جواله، ويقدر يدخل ويختار اسمه من جديد</div><button class="btn badb" onclick="doUnlink(${i})">نعم فك الربط</button>`)}
+async function doUnlink(i){const n=B(ME.shopId).staff[i].n;try{await staffTx(st=>{const s=st.find(x=>x.n===n);if(!s)return false;s.dev=null;s.tk=[]});closeSheet();toast('انفك الربط ✓')}catch(e){closeSheet();toast('ما انحفظ، جرّب مرة ثانية')}}
+function setMyH(k,v){const n=soloOf(B(ME.shopId));if(!n||!v)return;staffTx(st=>{const s=st.find(x=>x.n===n);if(!s)return false;s[k]=v}).catch(()=>toast('ما انحفظ، جرّب مرة ثانية'))}
 let BSL={};
-function slotsForB(b,date){const key=b.id+'|'+date;if(BSL.k!==key){BSL={k:key,set:new Set()};}
- const set=new Set(C.shopB.filter(x=>x.date===date&&x.status==='new').map(x=>x.time));
- const out=[];let[h,m]=b.from.split(':').map(Number);const[eh,em]=b.to.split(':').map(Number);const end=eh*60+em;
- for(let t=h*60+m;t<end;t+=30){const s=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;out.push({s,booked:set.has(s),blk:(b.blocked||[]).includes(date+'|'+s)})}return out}
+function slotsForB(b,date,wn){const key=b.id+'|'+date;if(BSL.k!==key){BSL={k:key,set:new Set()};}
+ const set=new Set(C.shopB.filter(x=>x.date===date&&x.status==='new'&&(!wn||x.who===wn)).map(x=>x.time));const H=hoursOf(b,wn);
+ const out=[];let[h,m]=H.from.split(':').map(Number);const[eh,em]=H.to.split(':').map(Number);const end=eh*60+em;const BL=b.blocked||[];
+ for(let t=h*60+m;t<end;t+=30){const s=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;const sb=BL.includes(date+'|'+s);out.push({s,booked:set.has(s),shopBlk:!!wn&&sb,blk:sb||(!!wn&&BL.includes(date+'|'+s+'|'+wn))})}return out}
 function updShop(o){db.collection('shops').doc(ME.shopId).update(o).catch(()=>toast('ما انحفظ، جرّب مرة ثانية'))}
-function togStaff(i){const b=B(ME.shopId);const st=(b.staff||[]).map(x=>Object.assign({},x));st[i].av=!st[i].av;updShop({staff:st});toast(st[i].n+(st[i].av?' صار متاح ✓':' صار غير متاح'))}
-function toggleBlk(date,s){const k=date+'|'+s;const b=B(ME.shopId);updShop({blocked:(b.blocked||[]).includes(k)?FV.arrayRemove(k):FV.arrayUnion(k)})}
+function togStaff(i){const b=B(ME.shopId);const n=(b.staff||[])[i]&&b.staff[i].n;if(!n)return;const av=!b.staff[i].av;staffTx(st=>{const s=st.find(x=>x.n===n);if(!s)return false;s.av=av}).catch(()=>toast('ما انحفظ، جرّب مرة ثانية'));toast(n+(av?' صار متاح ✓':' صار غير متاح'))}
+function toggleBlk(date,s){const b=B(ME.shopId);const so=soloOf(b);const k=date+'|'+s+(so?'|'+so:'');updShop({blocked:(b.blocked||[]).includes(k)?FV.arrayRemove(k):FV.arrayUnion(k)})}
 async function setSt(id,s){const k=C.shopB.find(x=>x.id===id);if(!k)return;
  try{await db.collection('bookings').doc(id).update({status:s});if(s==='cancel')db.collection('slots').doc(slotId(k)).delete().catch(()=>{});api('/event',{type:s==='done'?'sdone':'scancel',id})}catch(e){toast('ما انحفظ، جرّب مرة ثانية')}}
 function subCard(b){const n=subDays(b),d=dOf(b.sub);
